@@ -1,5 +1,6 @@
 #include "DwindleLayout.hpp"
 #include "../Compositor.hpp"
+#include "src/config/ConfigManager.hpp"
 
 void SDwindleNodeData::recalcSizePosRecursive(bool force) {
     if (children[0]) {
@@ -143,6 +144,7 @@ void CHyprDwindleLayout::applyNodeDataToWindow(SDwindleNodeData* pNode, bool for
         return;
 
     CMonitor* PMONITOR = nullptr;
+    const auto PWORKSPACE = g_pCompositor->getWorkspaceByID(pNode->workspaceID);
 
     if (g_pCompositor->isWorkspaceSpecial(pNode->workspaceID)) {
         for (auto& m : g_pCompositor->m_vMonitors) {
@@ -152,7 +154,7 @@ void CHyprDwindleLayout::applyNodeDataToWindow(SDwindleNodeData* pNode, bool for
             }
         }
     } else {
-        PMONITOR = g_pCompositor->getMonitorFromID(g_pCompositor->getWorkspaceByID(pNode->workspaceID)->m_iMonitorID);
+        PMONITOR = g_pCompositor->getMonitorFromID(PWORKSPACE->m_iMonitorID);
     }
 
     if (!PMONITOR) {
@@ -169,6 +171,8 @@ void CHyprDwindleLayout::applyNodeDataToWindow(SDwindleNodeData* pNode, bool for
     const auto PBORDERSIZE          = &g_pConfigManager->getConfigValuePtr("general:border_size")->intValue;
     const auto PGAPSIN              = &g_pConfigManager->getConfigValuePtr("general:gaps_in")->intValue;
     const auto PGAPSOUT             = &g_pConfigManager->getConfigValuePtr("general:gaps_out")->intValue;
+
+    const auto GAPSOUT = *(g_pConfigManager->getGapsOutForWS(PWORKSPACE->m_szName) ?: PGAPSOUT);
 
     const auto PWINDOW = pNode->pWindow;
 
@@ -205,11 +209,11 @@ void CHyprDwindleLayout::applyNodeDataToWindow(SDwindleNodeData* pNode, bool for
     PWINDOW->m_sSpecialRenderData.border = true;
     PWINDOW->m_sSpecialRenderData.decorate = true;
 
-    const auto OFFSETTOPLEFT = Vector2D(DISPLAYLEFT ? *PGAPSOUT : *PGAPSIN,
-                                        DISPLAYTOP ? *PGAPSOUT : *PGAPSIN);
+    const auto OFFSETTOPLEFT = Vector2D(DISPLAYLEFT ? GAPSOUT : *PGAPSIN,
+                                        DISPLAYTOP ? GAPSOUT : *PGAPSIN);
 
-    const auto OFFSETBOTTOMRIGHT = Vector2D(DISPLAYRIGHT ? *PGAPSOUT : *PGAPSIN,
-                                            DISPLAYBOTTOM ? *PGAPSOUT : *PGAPSIN);
+    const auto OFFSETBOTTOMRIGHT = Vector2D(DISPLAYRIGHT ? GAPSOUT : *PGAPSIN,
+                                            DISPLAYBOTTOM ? GAPSOUT : *PGAPSIN);
 
     calcPos = calcPos + OFFSETTOPLEFT;
     calcSize = calcSize - OFFSETTOPLEFT - OFFSETBOTTOMRIGHT;
