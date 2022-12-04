@@ -981,6 +981,23 @@ void CConfigManager::handleSource(const std::string& command, const std::string&
     }
 }
 
+void CConfigManager::handleGapsOutWS(const std::string& command, const std::string& value) {
+    const auto ARGS = CVarList(value);
+
+    const auto FOUND = std::find_if(gapsOutWorkspaces.begin(), gapsOutWorkspaces.end(), [&](const auto& other) { return other.first == ARGS[0]; });
+
+    if (FOUND != gapsOutWorkspaces.end()) {
+        if (ARGS[1] == "") {
+            gapsOutWorkspaces.erase(FOUND);
+        } else {
+            FOUND->second = configStringToInt(ARGS[1]);
+        }
+        return;
+    }
+
+    gapsOutWorkspaces.push_back({ARGS[0], configStringToInt(ARGS[1])});
+}
+
 void CConfigManager::handleBindWS(const std::string& command, const std::string& value) {
     const auto ARGS = CVarList(value);
 
@@ -1025,6 +1042,10 @@ std::string CConfigManager::parseKeyword(const std::string& COMMAND, const std::
     else if (COMMAND == "submap") handleSubmap(COMMAND, VALUE);
     else if (COMMAND == "blurls") handleBlurLS(COMMAND, VALUE);
     else if (COMMAND == "wsbind") handleBindWS(COMMAND, VALUE);
+    else if (COMMAND == "ws_gaps_out") {
+        handleGapsOutWS(COMMAND, VALUE);
+        needsLayoutRecalc = 1;
+    }
     else {
         configSetValueSafe(currentCategory + (currentCategory == "" ? "" : ":") + COMMAND, VALUE);
         needsLayoutRecalc = 2;
@@ -1156,6 +1177,7 @@ void CConfigManager::loadConfigLoadVars() {
     deviceConfigs.clear();
     m_dBlurLSNamespaces.clear();
     boundWorkspaces.clear();
+    gapsOutWorkspaces.clear();
     setDefaultAnimationVars(); // reset anims
 
     // paths
@@ -1673,6 +1695,18 @@ void CConfigManager::addParseError(const std::string& err) {
         parseError = err;
 
     g_pHyprError->queueCreate(parseError + "\nHyprland may not work correctly.", CColor(255, 50, 50, 255));
+}
+
+int64_t* CConfigManager::getGapsOutForWS(std::string wsname) {
+    for (auto&[ws, gapsOut] : gapsOutWorkspaces) {
+        const auto WSNAME = ws.find("name:") == 0 ? ws.substr(5) : ws;
+
+        if (WSNAME == wsname) {
+            return &gapsOut;
+        }
+    }
+
+    return nullptr;
 }
 
 CMonitor* CConfigManager::getBoundMonitorForWS(std::string wsname) {
