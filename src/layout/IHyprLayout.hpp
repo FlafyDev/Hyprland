@@ -44,7 +44,7 @@ public:
         Called when the monitor requires a layout recalculation
         this usually means reserved area changes
     */
-    virtual void        recalculateMonitor(const int&)      = 0;
+    virtual void        recalculateMonitor(const int&, const bool = false)      = 0;
 
     /*
         Called when the compositor requests a window

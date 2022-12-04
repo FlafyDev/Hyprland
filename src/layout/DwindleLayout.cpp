@@ -273,8 +273,6 @@ void CHyprDwindleLayout::applyNodeDataToWindow(SDwindleNodeData* pNode, bool for
         PVISNODE->pWindow->m_vRealPosition = PWINDOW->m_vRealPosition.goalv();
     }
 
-    /* Debug::log(LOG, "real position: %f, %f", PWINDOW->m_vRealPosition.vec().x, PWINDOW->m_vRealPosition.vec().y); */
-
     PWINDOW->updateWindowDecos();
 }
 
@@ -559,7 +557,7 @@ void CHyprDwindleLayout::onWindowRemovedTiling(CWindow* pWindow) {
     m_lDwindleNodesData.remove(*PNODE);
 }
 
-void CHyprDwindleLayout::recalculateMonitor(const int& monid) {
+void CHyprDwindleLayout::recalculateMonitor(const int& monid, const bool allWorkspaces) {
     const auto PMONITOR = g_pCompositor->getMonitorFromID(monid);
 
     if (!PMONITOR)
@@ -606,25 +604,25 @@ void CHyprDwindleLayout::recalculateMonitor(const int& monid) {
             return;
         }
     }
-
-    /* const auto TOPNODE = getMasterNodeOnWorkspace(PMONITOR->activeWorkspace); */
-
   
     if (PMONITOR) {
-        for (auto& n : m_lDwindleNodesData) {
-            if (!n.pParent) {
-                n.position = PMONITOR->vecPosition + PMONITOR->vecReservedTopLeft;
-                n.size = PMONITOR->vecSize - PMONITOR->vecReservedTopLeft - PMONITOR->vecReservedBottomRight;
-                n.recalcSizePosRecursive();
+        if (allWorkspaces) {
+            for (auto& n : m_lDwindleNodesData) {
+                if (!n.pParent) {
+                    n.position = PMONITOR->vecPosition + PMONITOR->vecReservedTopLeft;
+                    n.size = PMONITOR->vecSize - PMONITOR->vecReservedTopLeft - PMONITOR->vecReservedBottomRight;
+                    n.recalcSizePosRecursive();
+                }
+            }
+        } else {
+            const auto TOPNODE = getMasterNodeOnWorkspace(PMONITOR->activeWorkspace);
+            if (TOPNODE) {
+                TOPNODE->position = PMONITOR->vecPosition + PMONITOR->vecReservedTopLeft;
+                TOPNODE->size = PMONITOR->vecSize - PMONITOR->vecReservedTopLeft - PMONITOR->vecReservedBottomRight;
+                TOPNODE->recalcSizePosRecursive();
             }
         }
     }
-
-    /* if (TOPNODE && PMONITOR) { */
-    /*     TOPNODE->position = PMONITOR->vecPosition + PMONITOR->vecReservedTopLeft; */
-    /*     TOPNODE->size = PMONITOR->vecSize - PMONITOR->vecReservedTopLeft - PMONITOR->vecReservedBottomRight; */
-    /*     TOPNODE->recalcSizePosRecursive(); */
-    /* } */
 }
 
 bool CHyprDwindleLayout::isWindowTiled(CWindow* pWindow) {

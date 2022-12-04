@@ -1059,7 +1059,7 @@ std::string CConfigManager::parseKeyword(const std::string& COMMAND, const std::
         if (needsLayoutRecalc) {
             if (needsLayoutRecalc == 1 || COMMAND.contains("gaps_") || COMMAND.find("dwindle:") == 0 || COMMAND.find("master:") == 0) {
                 for (auto& m : g_pCompositor->m_vMonitors)
-                    g_pLayoutManager->getCurrentLayout()->recalculateMonitor(m->ID);
+                    g_pLayoutManager->getCurrentLayout()->recalculateMonitor(m->ID, true);
             }
         }
 
