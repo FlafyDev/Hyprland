@@ -1,6 +1,5 @@
 #include "DwindleLayout.hpp"
 #include "../Compositor.hpp"
-#include "src/config/ConfigManager.hpp"
 
 void SDwindleNodeData::recalcSizePosRecursive(bool force) {
     if (children[0]) {
