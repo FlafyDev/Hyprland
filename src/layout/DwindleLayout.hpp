@@ -51,7 +51,7 @@ public:
     virtual void        onWindowCreatedTiling(CWindow*);
     virtual void        onWindowRemovedTiling(CWindow*);
     virtual bool        isWindowTiled(CWindow*);
-    virtual void        recalculateMonitor(const int&);
+    virtual void        recalculateMonitor(const int&, const bool = false);
     virtual void        recalculateWindow(CWindow*);
     virtual void        resizeActiveWindow(const Vector2D&, CWindow* pWindow = nullptr);
     virtual void        fullscreenRequestForWindow(CWindow*, eFullscreenMode, bool);

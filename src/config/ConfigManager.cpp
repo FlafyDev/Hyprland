@@ -1038,7 +1038,7 @@ std::string CConfigManager::parseKeyword(const std::string& COMMAND, const std::
         if (needsLayoutRecalc) {
             if (needsLayoutRecalc == 1 || VALUE.find("gaps_") || VALUE.find("dwindle:") == 0 || VALUE.find("master:") == 0) {
                 for (auto& m : g_pCompositor->m_vMonitors)
-                    g_pLayoutManager->getCurrentLayout()->recalculateMonitor(m->ID);
+                    g_pLayoutManager->getCurrentLayout()->recalculateMonitor(m->ID, true);
             }
         }
 

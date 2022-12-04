@@ -144,7 +144,7 @@ void CHyprMasterLayout::onWindowRemovedTiling(CWindow* pWindow) {
     recalculateMonitor(pWindow->m_iMonitorID);
 }
 
-void CHyprMasterLayout::recalculateMonitor(const int& monid) {
+void CHyprMasterLayout::recalculateMonitor(const int& monid, const bool allWorkspaces) {
     const auto PMONITOR = g_pCompositor->getMonitorFromID(monid);
     const auto PWORKSPACE = g_pCompositor->getWorkspaceByID(PMONITOR->activeWorkspace);
 
@@ -178,7 +178,15 @@ void CHyprMasterLayout::recalculateMonitor(const int& monid) {
     }
 
     // calc the WS
-    calculateWorkspace(PWORKSPACE->m_iID);
+    if (allWorkspaces) {
+        for (auto& n : m_lMasterNodesData) {
+            if (n.isMaster) {
+                calculateWorkspace(PWORKSPACE->m_iID);
+            }
+        }
+    } else {
+        calculateWorkspace(PWORKSPACE->m_iID);
+    }
 }
 
 void CHyprMasterLayout::calculateWorkspace(const int& ws) {
