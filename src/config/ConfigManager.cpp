@@ -1299,6 +1299,7 @@ void CConfigManager::loadConfigLoadVars() {
 
     for (auto& m : g_pCompositor->m_vMonitors) {
         // mark blur dirty
+        Debug::log(LOG, "option5");
         g_pHyprOpenGL->markBlurDirtyForMonitor(m.get());
 
         // Force the compositor to fully re-render all monitors

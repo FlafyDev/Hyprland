@@ -95,7 +95,6 @@ bool CHyprRenderer::shouldRenderWindow(CWindow* pWindow, CMonitor* pMonitor) {
 }
 
 bool CHyprRenderer::shouldRenderWindow(CWindow* pWindow) {
-
     if (!g_pCompositor->windowValidMapped(pWindow))
         return false;
 
@@ -308,7 +307,10 @@ void CHyprRenderer::renderWindow(CWindow* pWindow, CMonitor* pMonitor, timespec*
 
             scaleBox(&windowBox, pMonitor->scale);
 
-            g_pHyprOpenGL->renderBorder(&windowBox, grad, rounding, a1);
+            const float aa = g_pHyprOpenGL->m_pCurrentWindow->m_fAlpha.fl();
+            g_pHyprOpenGL->renderBorder(&windowBox, grad, rounding, a1, aa/255);
+
+            /* g_pHyprOpenGL->m_pCurrentWindow->m_fBorderAnimationProgress; */
 
             if (ANIMATED) {
                 float a2 = renderdata.fadeAlpha * renderdata.alpha / 255.f * (1.f - g_pHyprOpenGL->m_pCurrentWindow->m_fBorderAnimationProgress.fl());

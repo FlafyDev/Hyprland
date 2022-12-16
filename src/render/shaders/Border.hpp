@@ -19,6 +19,7 @@ uniform vec4 gradient[10];
 uniform int gradientLength;
 uniform float angle;
 uniform float alpha;
+uniform vec2 mouse;
 
 vec4 getColorForCoord(vec2 normalizedCoord) {
     if (gradientLength < 2)
@@ -50,7 +51,6 @@ vec4 getColorForCoord(vec2 normalizedCoord) {
 }
 
 void main() {
-
     highp vec2 pixCoord = vec2(gl_FragCoord);
     highp vec2 originalPixCoord = v_texcoord;
     originalPixCoord *= fullSizeUntransformed;
@@ -62,6 +62,10 @@ void main() {
     pixCoord -= topLeft + fullSize * 0.5;
     pixCoord *= vec2(lessThan(pixCoord, vec2(0.0))) * -2.0 + 1.0;
     pixCoord -= fullSize * 0.5 - radius;
+
+    float lightRadius = 500.0;
+    float distance = abs(distance(mouse, gl_FragCoord.xy));
+    // pixColor = vec4(pixColor.rgb, 1.0 - 1.0 / lightRadius * distance);
 
     if (min(pixCoord.x, pixCoord.y) > 0.0 && radius > 0.0) {
 

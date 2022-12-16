@@ -674,8 +674,6 @@ void Events::listener_commitWindow(void* owner, void* data) {
         return;
 
     g_pHyprRenderer->damageSurface(g_pXWaylandManager->getWindowSurface(PWINDOW), PWINDOW->m_vRealPosition.goalv().x, PWINDOW->m_vRealPosition.goalv().y);
-
-    // Debug::log(LOG, "Window %x committed", PWINDOW); // SPAM!
 }
 
 void Events::listener_destroyWindow(void* owner, void* data) {

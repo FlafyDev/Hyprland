@@ -247,8 +247,10 @@ void Events::listener_commitLayerSurface(void* owner, void* data) {
     if (!PMONITOR)
         return;
 
-    if (layersurface->layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND || layersurface->layer == ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM)
+    if (layersurface->layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND || layersurface->layer == ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM) {
+        Debug::log(LOG, "option3");
         g_pHyprOpenGL->markBlurDirtyForMonitor(PMONITOR);  // so that blur is recalc'd
+    }
 
     wlr_box geomFixed = {layersurface->geometry.x, layersurface->geometry.y, layersurface->geometry.width, layersurface->geometry.height};
     g_pHyprRenderer->damageBox(&geomFixed);
@@ -283,8 +285,10 @@ void Events::listener_commitLayerSurface(void* owner, void* data) {
 
             layersurface->layer = layersurface->layerSurface->current.layer;
 
-            if (layersurface->layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND || layersurface->layer == ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM)
+            if (layersurface->layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND || layersurface->layer == ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM) {
+                Debug::log(LOG, "option4");
                 g_pHyprOpenGL->markBlurDirtyForMonitor(PMONITOR);  // so that blur is recalc'd
+            }
         }
 
         g_pHyprRenderer->arrangeLayersForMonitor(PMONITOR->ID);
