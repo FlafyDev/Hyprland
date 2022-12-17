@@ -150,6 +150,7 @@ class CConfigManager {
 
     CMonitor*                                                       getBoundMonitorForWS(const std::string&);
     std::string                                                     getBoundMonitorStringForWS(const std::string&);
+    int64_t*                                                        getGapsOutForWS(std::string);
 
     std::vector<SWindowRule>                                        getMatchingRules(CWindow*);
 
@@ -192,6 +193,7 @@ class CConfigManager {
 
     std::vector<std::pair<std::string, std::string>>                               boundWorkspaces;
 
+    std::vector<std::pair<std::string, int64_t>>                                   gapsOutWorkspaces;
     std::vector<SExecRequestedRule>                                                execRequestedRules; // rules requested with exec, e.g. [workspace 2] kitty
 
     bool                                                                           isFirstLaunch = true; // For exec-once
@@ -230,6 +232,7 @@ class CConfigManager {
     void         handleSubmap(const std::string&, const std::string&);
     void         handleBlurLS(const std::string&, const std::string&);
     void         handleBindWS(const std::string&, const std::string&);
+    void         handleGapsOutWS(const std::string&, const std::string&);
 };
 
 inline std::unique_ptr<CConfigManager> g_pConfigManager;

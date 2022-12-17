@@ -89,7 +89,7 @@
         default = self.packages.${system}.hyprland;
       });
 
-    devShells = genSystems (system: {
+    devShells = genSystems (system: rec {
       default = pkgsFor.${system}.mkShell.override {stdenv = pkgsFor.${system}.gcc12Stdenv;} {
         name = "hyprland-shell";
         nativeBuildInputs = with pkgsFor.${system}; [
