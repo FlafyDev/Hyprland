@@ -1,5 +1,6 @@
 #include "InputManager.hpp"
 #include "../../Compositor.hpp"
+#include "wlr/types/wlr_switch.h"
 
 void CInputManager::onMouseMoved(wlr_pointer_motion_event* e) {
     static auto* const PSENS      = &g_pConfigManager->getConfigValuePtr("general:sensitivity")->floatValue;
@@ -20,6 +21,8 @@ void CInputManager::onMouseMoved(wlr_pointer_motion_event* e) {
     mouseMoveUnified(e->time_msec);
 
     m_tmrLastCursorMovement.reset();
+
+    m_bLastInputTouch = false;
 }
 
 void CInputManager::onMouseWarp(wlr_pointer_motion_absolute_event* e) {
@@ -28,6 +31,8 @@ void CInputManager::onMouseWarp(wlr_pointer_motion_absolute_event* e) {
     mouseMoveUnified(e->time_msec);
 
     m_tmrLastCursorMovement.reset();
+
+    m_bLastInputTouch = false;
 }
 
 void CInputManager::mouseMoveUnified(uint32_t time, bool refocus) {
@@ -321,6 +326,14 @@ void CInputManager::onMouseButton(wlr_pointer_button_event* e) {
 
     m_tmrLastCursorMovement.reset();
 
+    if (e->state == WLR_BUTTON_PRESSED) {
+        m_lCurrentlyHeldButtons.push_back(e->button);
+    } else {
+        if (std::find_if(m_lCurrentlyHeldButtons.begin(), m_lCurrentlyHeldButtons.end(), [&](const auto& other) { return other == e->button; }) == m_lCurrentlyHeldButtons.end())
+            return;
+        std::erase_if(m_lCurrentlyHeldButtons, [&](const auto& other) { return other == e->button; });
+    }
+
     switch (m_ecbClickBehavior) {
         case CLICKMODE_DEFAULT: processMouseDownNormal(e); break;
         case CLICKMODE_KILL: processMouseDownKill(e); break;
@@ -413,7 +426,7 @@ void CInputManager::processMouseDownNormal(wlr_pointer_button_event* e) {
 void CInputManager::processMouseDownKill(wlr_pointer_button_event* e) {
     switch (e->state) {
         case WLR_BUTTON_PRESSED: {
-            const auto PWINDOW = g_pCompositor->m_pLastWindow;
+            const auto PWINDOW = g_pCompositor->vectorToWindowIdeal(getMouseCoordsInternal());
 
             if (!PWINDOW) {
                 Debug::log(ERR, "Cannot kill invalid window!");
@@ -555,7 +568,7 @@ void CInputManager::applyConfigToKeyboard(SKeyboard* pKeyboard) {
     const auto VARIANT  = HASCONFIG ? g_pConfigManager->getDeviceString(devname, "kb_variant") : g_pConfigManager->getString("input:kb_variant");
     const auto OPTIONS  = HASCONFIG ? g_pConfigManager->getDeviceString(devname, "kb_options") : g_pConfigManager->getString("input:kb_options");
 
-    const auto ENABLED  = HASCONFIG ? g_pConfigManager->getDeviceInt(devname, "enabled") : true;
+    const auto ENABLED = HASCONFIG ? g_pConfigManager->getDeviceInt(devname, "enabled") : true;
 
     pKeyboard->enabled = ENABLED;
 
@@ -743,6 +756,11 @@ void CInputManager::setPointerConfigs() {
                 Debug::log(WARN, "Scroll method unknown");
             }
 
+            if ((HASCONFIG ? g_pConfigManager->getDeviceInt(devname, "tap-and-drag") : g_pConfigManager->getInt("input:touchpad:tap-and-drag")) == 0)
+                libinput_device_config_tap_set_drag_enabled(LIBINPUTDEV, LIBINPUT_CONFIG_DRAG_DISABLED);
+            else
+                libinput_device_config_tap_set_drag_enabled(LIBINPUTDEV, LIBINPUT_CONFIG_DRAG_ENABLED);
+
             if ((HASCONFIG ? g_pConfigManager->getDeviceInt(devname, "drag_lock") : g_pConfigManager->getInt("input:touchpad:drag_lock")) == 0)
                 libinput_device_config_tap_set_drag_lock_enabled(LIBINPUTDEV, LIBINPUT_CONFIG_DRAG_LOCK_DISABLED);
             else
@@ -809,9 +827,8 @@ void CInputManager::destroyKeyboard(SKeyboard* pKeyboard) {
         } else {
             m_pActiveKeyboard = nullptr;
         }
-    }
-
-    m_lKeyboards.remove(*pKeyboard);
+    } else
+        m_lKeyboards.remove(*pKeyboard);
 }
 
 void CInputManager::destroyMouse(wlr_input_device* mouse) {
@@ -1037,6 +1054,16 @@ void Events::listener_commitConstraint(void* owner, void* data) {
             PCONSTRAINT->hintSet      = true;
         }
     }
+
+    if (PMOUSE->currentConstraint->current.committed & WLR_POINTER_CONSTRAINT_V1_STATE_REGION) {
+        if (pixman_region32_not_empty(&PMOUSE->currentConstraint->current.region)) {
+            pixman_region32_intersect(&PMOUSE->currentConstraint->region, &PMOUSE->currentConstraint->surface->input_region, &PMOUSE->currentConstraint->current.region);
+        } else {
+            pixman_region32_copy(&PMOUSE->currentConstraint->region, &PMOUSE->currentConstraint->surface->input_region);
+        }
+
+        g_pInputManager->recheckConstraint(PMOUSE);
+    }
 }
 
 void CInputManager::updateCapabilities() {
@@ -1121,23 +1148,6 @@ void CInputManager::newTouchDevice(wlr_input_device* pDevice) {
 }
 
 void CInputManager::setTouchDeviceConfigs() {
-    // The third row is always 0 0 1 and is not expected by `libinput_device_config_calibration_set_matrix`
-    static const float MATRICES[8][6] = {{// normal
-                                          1, 0, 0, 0, 1, 0},
-                                         {// rotation 90°
-                                          0, -1, 1, 1, 0, 0},
-                                         {// rotation 180°
-                                          -1, 0, 1, 0, -1, 1},
-                                         {// rotation 270°
-                                          0, 1, 0, -1, 0, 1},
-                                         {// flipped
-                                          -1, 0, 1, 0, 1, 0},
-                                         {// flipped + rotation 90°
-                                          0, 1, 0, 1, 0, 0},
-                                         {// flipped + rotation 180°
-                                          1, 0, 0, 0, -1, 1},
-                                         {// flipped + rotation 270°
-                                          0, -1, 1, -1, 0, 1}};
     for (auto& m : m_lTouchDevices) {
         const auto PTOUCHDEV = &m;
 
@@ -1147,14 +1157,35 @@ void CInputManager::setTouchDeviceConfigs() {
             const auto LIBINPUTDEV = (libinput_device*)wlr_libinput_get_device_handle(m.pWlrDevice);
 
             const int  ROTATION =
-                std::clamp(HASCONFIG ? g_pConfigManager->getDeviceInt(PTOUCHDEV->name, "touch_transform") : g_pConfigManager->getInt("input:touchdevice:transform"), 0, 7);
+                std::clamp(HASCONFIG ? g_pConfigManager->getDeviceInt(PTOUCHDEV->name, "transform") : g_pConfigManager->getInt("input:touchdevice:transform"), 0, 7);
             libinput_device_config_calibration_set_matrix(LIBINPUTDEV, MATRICES[ROTATION]);
 
-            const auto OUTPUT = HASCONFIG ? g_pConfigManager->getDeviceString(PTOUCHDEV->name, "touch_output") : g_pConfigManager->getString("input:touchdevice:output");
+            const auto OUTPUT = HASCONFIG ? g_pConfigManager->getDeviceString(PTOUCHDEV->name, "output") : g_pConfigManager->getString("input:touchdevice:output");
             if (!OUTPUT.empty() && OUTPUT != STRVAL_EMPTY)
                 PTOUCHDEV->boundOutput = OUTPUT;
             else
                 PTOUCHDEV->boundOutput = "";
+        }
+    }
+}
+
+void CInputManager::setTabletConfigs() {
+    for (auto& t : m_lTablets) {
+        const auto HASCONFIG = g_pConfigManager->deviceConfigExists(t.name);
+
+        if (wlr_input_device_is_libinput(t.wlrDevice)) {
+            const auto LIBINPUTDEV = (libinput_device*)wlr_libinput_get_device_handle(t.wlrDevice);
+
+            const int  ROTATION = std::clamp(HASCONFIG ? g_pConfigManager->getDeviceInt(t.name, "transform") : g_pConfigManager->getInt("input:tablet:transform"), 0, 7);
+            Debug::log(LOG, "Setting calibration matrix for device %s", t.name);
+            libinput_device_config_calibration_set_matrix(LIBINPUTDEV, MATRICES[ROTATION]);
+
+            const auto OUTPUT   = HASCONFIG ? g_pConfigManager->getDeviceString(t.name, "output") : g_pConfigManager->getString("input:tablet:output");
+            const auto PMONITOR = g_pCompositor->getMonitorFromString(OUTPUT);
+            if (!OUTPUT.empty() && OUTPUT != STRVAL_EMPTY && PMONITOR) {
+                wlr_cursor_map_input_to_output(g_pCompositor->m_sWLRCursor, t.wlrDevice, PMONITOR->output);
+                wlr_cursor_map_input_to_region(g_pCompositor->m_sWLRCursor, t.wlrDevice, nullptr);
+            }
         }
     }
 }
@@ -1185,6 +1216,18 @@ void CInputManager::newSwitch(wlr_input_device* pDevice) {
             Debug::log(LOG, "Switch %s fired, triggering binds.", NAME.c_str());
 
             g_pKeybindManager->onSwitchEvent(NAME);
+
+            const auto event_data = (wlr_switch_toggle_event*)data;
+            switch (event_data->switch_state) {
+                case WLR_SWITCH_STATE_ON:
+                    Debug::log(LOG, "Switch %s turn on, triggering binds.", NAME.c_str());
+                    g_pKeybindManager->onSwitchOnEvent(NAME);
+                    break;
+                case WLR_SWITCH_STATE_OFF:
+                    Debug::log(LOG, "Switch %s turn off, triggering binds.", NAME.c_str());
+                    g_pKeybindManager->onSwitchOffEvent(NAME);
+                    break;
+            }
         },
         PNEWDEV, "SwitchDevice");
 }
@@ -1252,4 +1295,17 @@ SConstraint* CInputManager::constraintFromWlr(wlr_pointer_constraint_v1* constra
     }
 
     return nullptr;
+}
+
+void CInputManager::releaseAllMouseButtons() {
+    const auto buttonsCopy = m_lCurrentlyHeldButtons;
+
+    if (g_pInputManager->m_sDrag.drag)
+        return;
+
+    for (auto& mb : buttonsCopy) {
+        wlr_seat_pointer_notify_button(g_pCompositor->m_sSeat.seat, 0, mb, WLR_BUTTON_RELEASED);
+    }
+
+    m_lCurrentlyHeldButtons.clear();
 }

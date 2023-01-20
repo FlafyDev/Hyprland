@@ -32,7 +32,8 @@ struct SMonitorRenderData {
     CTexture     stencilTex;
 
     CFramebuffer blurFB;
-    bool         blurFBDirty = true;
+    bool         blurFBDirty        = true;
+    bool         blurFBShouldRender = false;
 
     wlr_box      backgroundTexBox;
 

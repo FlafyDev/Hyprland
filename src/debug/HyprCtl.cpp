@@ -24,6 +24,9 @@ std::string monitorsRequest(HyprCtl::eHyprCtlOutputFormat format) {
     "id": %i,
     "name": "%s",
     "description": "%s",
+    "make": "%s",
+    "model": "%s",
+    "serial": "%s",
     "width": %i,
     "height": %i,
     "refreshRate": %f,
@@ -39,7 +42,8 @@ std::string monitorsRequest(HyprCtl::eHyprCtlOutputFormat format) {
     "focused": %s,
     "dpmsStatus": %s
 },)#",
-                m->ID, escapeJSONStrings(m->szName).c_str(), escapeJSONStrings(m->output->description ? m->output->description : "").c_str(), (int)m->vecPixelSize.x,
+                m->ID, escapeJSONStrings(m->szName).c_str(), escapeJSONStrings(m->output->description ? m->output->description : "").c_str(),
+                (m->output->make ? m->output->make : ""), (m->output->model ? m->output->model : ""), (m->output->serial ? m->output->serial : ""), (int)m->vecPixelSize.x,
                 (int)m->vecPixelSize.y, m->refreshRate, (int)m->vecPosition.x, (int)m->vecPosition.y, m->activeWorkspace,
                 escapeJSONStrings(g_pCompositor->getWorkspaceByID(m->activeWorkspace)->m_szName).c_str(), (int)m->vecReservedTopLeft.x, (int)m->vecReservedTopLeft.y,
                 (int)m->vecReservedBottomRight.x, (int)m->vecReservedBottomRight.y, m->scale, (int)m->transform, (m.get() == g_pCompositor->m_pLastMonitor ? "true" : "false"),
@@ -52,10 +56,12 @@ std::string monitorsRequest(HyprCtl::eHyprCtlOutputFormat format) {
         result += "]";
     } else {
         for (auto& m : g_pCompositor->m_vMonitors) {
-            result += getFormat("Monitor %s (ID %i):\n\t%ix%i@%f at %ix%i\n\tdescription: %s\n\tactive workspace: %i (%s)\n\treserved: %i %i %i %i\n\tscale: %.2f\n\ttransform: "
+            result += getFormat("Monitor %s (ID %i):\n\t%ix%i@%f at %ix%i\n\tdescription: %s\n\tmake: %s\n\tmodel: %s\n\tserial: %s\n\tactive workspace: %i (%s)\n\treserved: %i "
+                                "%i %i %i\n\tscale: %.2f\n\ttransform: "
                                 "%i\n\tfocused: %s\n\tdpmsStatus: %i\n\n",
                                 m->szName.c_str(), m->ID, (int)m->vecPixelSize.x, (int)m->vecPixelSize.y, m->refreshRate, (int)m->vecPosition.x, (int)m->vecPosition.y,
-                                (m->output->description ? m->output->description : ""), m->activeWorkspace, g_pCompositor->getWorkspaceByID(m->activeWorkspace)->m_szName.c_str(),
+                                (m->output->description ? m->output->description : ""), (m->output->make ? m->output->make : ""), (m->output->model ? m->output->model : ""),
+                                (m->output->serial ? m->output->serial : ""), m->activeWorkspace, g_pCompositor->getWorkspaceByID(m->activeWorkspace)->m_szName.c_str(),
                                 (int)m->vecReservedTopLeft.x, (int)m->vecReservedTopLeft.y, (int)m->vecReservedBottomRight.x, (int)m->vecReservedBottomRight.y, m->scale,
                                 (int)m->transform, (m.get() == g_pCompositor->m_pLastMonitor ? "yes" : "no"), (int)m->dpmsStatus);
         }
@@ -277,9 +283,10 @@ std::string layersRequest(HyprCtl::eHyprCtlOutputFormat format) {
     } else {
         for (auto& mon : g_pCompositor->m_vMonitors) {
             result += getFormat("Monitor %s:\n", mon->szName.c_str());
-            int layerLevel = 0;
+            int                                     layerLevel = 0;
+            static const std::array<std::string, 4> levelNames = {"background", "bottom", "top", "overlay"};
             for (auto& level : mon->m_aLayerSurfaceLists) {
-                result += getFormat("\tLayer level %i:\n", layerLevel);
+                result += getFormat("\tLayer level %i (%s):\n", layerLevel, levelNames[layerLevel].c_str());
 
                 for (auto& layer : level) {
                     result += getFormat("\t\tLayer %x: xywh: %i %i %i %i, namespace: %s\n", layer.get(), layer->geometry.x, layer->geometry.y, layer->geometry.width,
@@ -461,6 +468,51 @@ std::string devicesRequest(HyprCtl::eHyprCtlOutputFormat format) {
     return result;
 }
 
+std::string bindsRequest(HyprCtl::eHyprCtlOutputFormat format) {
+    std::string ret = "";
+    if (format == HyprCtl::eHyprCtlOutputFormat::FORMAT_NORMAL) {
+        for (auto& kb : g_pKeybindManager->m_lKeybinds) {
+            ret += "bind";
+            if (kb.locked)
+                ret += "l";
+            if (kb.mouse)
+                ret += "m";
+            if (kb.release)
+                ret += "r";
+            if (kb.repeat)
+                ret += "e";
+
+            ret += getFormat("\n\tmodmask: %u\n\tsubmap: %s\n\tkey: %s\n\tkeycode: %d\n\tdispatcher: %s\n\targ: %s\n\n", kb.modmask, kb.submap.c_str(), kb.key.c_str(), kb.keycode,
+                             kb.handler.c_str(), kb.arg.c_str());
+        }
+    } else {
+        // json
+        ret += "[";
+        for (auto& kb : g_pKeybindManager->m_lKeybinds) {
+            ret += getFormat(
+                R"#(
+{
+    "locked": %s,
+    "mouse": %s,
+    "release": %s,
+    "repeat": %s,
+    "modmask": %u,
+    "submap": "%s",
+    "key": "%s",
+    "keycode": %i,
+    "dispatcher": "%s",
+    "arg": "%s"
+},)#",
+                kb.locked ? "true" : "false", kb.mouse ? "true" : "false", kb.release ? "true" : "false", kb.repeat ? "true" : "false", kb.modmask,
+                escapeJSONStrings(kb.submap).c_str(), escapeJSONStrings(kb.key).c_str(), kb.keycode, escapeJSONStrings(kb.handler).c_str(), escapeJSONStrings(kb.arg).c_str());
+        }
+        ret.pop_back();
+        ret += "]";
+    }
+
+    return ret;
+}
+
 std::string versionRequest(HyprCtl::eHyprCtlOutputFormat format) {
 
     if (format == HyprCtl::eHyprCtlOutputFormat::FORMAT_NORMAL) {
@@ -551,6 +603,7 @@ std::string dispatchKeyword(std::string in) {
         g_pInputManager->setKeyboardLayout();     // update kb layout
         g_pInputManager->setPointerConfigs();     // update mouse cfgs
         g_pInputManager->setTouchDeviceConfigs(); // update touch device cfgs
+        g_pInputManager->setTabletConfigs();      // update tablets
     }
 
     if (COMMAND.contains("general:layout"))
@@ -558,6 +611,18 @@ std::string dispatchKeyword(std::string in) {
 
     if (COMMAND.contains("decoration:screen_shader"))
         g_pHyprOpenGL->m_bReloadScreenShader = true;
+
+    if (COMMAND.contains("blur")) {
+        for (auto& [m, rd] : g_pHyprOpenGL->m_mMonitorRenderResources) {
+            rd.blurFBDirty = true;
+        }
+    }
+
+    // decorations will probably need a repaint
+    if (COMMAND.contains("decoration:") || COMMAND.contains("border")) {
+        for (auto& m : g_pCompositor->m_vMonitors)
+            g_pHyprRenderer->damageMonitor(m.get());
+    }
 
     Debug::log(LOG, "Hyprctl: keyword %s : %s", COMMAND.c_str(), VALUE.c_str());
 
@@ -906,6 +971,8 @@ std::string getReply(std::string request) {
         return splashRequest();
     else if (request == "cursorpos")
         return cursorPosRequest(format);
+    else if (request == "binds")
+        return bindsRequest(format);
     else if (request.find("switchxkblayout") == 0)
         return switchXKBLayoutRequest(request);
     else if (request.find("output") == 0)

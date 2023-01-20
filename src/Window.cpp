@@ -22,7 +22,12 @@ CWindow::~CWindow() {
 }
 
 wlr_box CWindow::getFullWindowBoundingBox() {
-    static auto* const       PBORDERSIZE = &g_pConfigManager->getConfigValuePtr("general:border_size")->intValue;
+    static auto* const PBORDERSIZE = &g_pConfigManager->getConfigValuePtr("general:border_size")->intValue;
+
+    if (m_sAdditionalConfigData.dimAround) {
+        const auto PMONITOR = g_pCompositor->getMonitorFromID(m_iMonitorID);
+        return {PMONITOR->vecPosition.x, PMONITOR->vecPosition.y, PMONITOR->vecSize.x, PMONITOR->vecSize.y};
+    }
 
     SWindowDecorationExtents maxExtents = {{*PBORDERSIZE + 2, *PBORDERSIZE + 2}, {*PBORDERSIZE + 2, *PBORDERSIZE + 2}};
 
@@ -134,11 +139,7 @@ void CWindow::createToplevelHandle() {
 
     // handle events
     hyprListener_toplevelActivate.initCallback(
-        &m_phForeignToplevel->events.request_activate,
-        [&](void* owner, void* data) {
-            g_pCompositor->focusWindow(this);
-        },
-        this, "Toplevel");
+        &m_phForeignToplevel->events.request_activate, [&](void* owner, void* data) { g_pCompositor->focusWindow(this); }, this, "Toplevel");
 
     hyprListener_toplevelFullscreen.initCallback(
         &m_phForeignToplevel->events.request_fullscreen,
@@ -150,11 +151,7 @@ void CWindow::createToplevelHandle() {
         this, "Toplevel");
 
     hyprListener_toplevelClose.initCallback(
-        &m_phForeignToplevel->events.request_close,
-        [&](void* owner, void* data) {
-            g_pCompositor->closeWindow(this);
-        },
-        this, "Toplevel");
+        &m_phForeignToplevel->events.request_close, [&](void* owner, void* data) { g_pCompositor->closeWindow(this); }, this, "Toplevel");
 
     m_iLastToplevelMonitorID = m_iMonitorID;
 }
@@ -222,6 +219,9 @@ void CWindow::moveToWorkspace(int workspaceID) {
         if (const auto PWORKSPACE = g_pCompositor->getWorkspaceByID(m_iWorkspaceID); PWORKSPACE) {
             g_pEventManager->postEvent(SHyprIPCEvent{"movewindow", getFormat("%x,%s", this, PWORKSPACE->m_szName.c_str())});
         }
+
+        if (const auto PMONITOR = g_pCompositor->getMonitorFromID(m_iMonitorID); PMONITOR)
+            g_pProtocolManager->m_pFractionalScaleProtocolManager->setPreferredScaleForSurface(g_pXWaylandManager->getWindowSurface(this), PMONITOR->scale);
     }
 }
 
@@ -270,6 +270,8 @@ void CWindow::onUnmap() {
     m_fDimPercent.setCallbackOnEnd(unregisterVar);
 
     m_vRealSize.setCallbackOnBegin(nullptr);
+
+    std::erase_if(g_pCompositor->m_vWindowFocusHistory, [&](const auto& other) { return other == this; });
 }
 
 void CWindow::onMap() {
@@ -293,6 +295,8 @@ void CWindow::onMap() {
 
     m_vRealSize.setCallbackOnEnd([&](void* ptr) { g_pHyprOpenGL->onWindowResizeEnd(this); }, false);
     m_vRealSize.setCallbackOnBegin([&](void* ptr) { g_pHyprOpenGL->onWindowResizeStart(this); }, false);
+
+    g_pCompositor->m_vWindowFocusHistory.push_back(this);
 }
 
 void CWindow::setHidden(bool hidden) {
@@ -359,6 +363,8 @@ void CWindow::applyDynamicRule(const SWindowRule& r) {
                 m_sSpecialRenderData.activeBorderColor = configStringToInt(colorPart);
             }
         } catch (std::exception& e) { Debug::log(ERR, "BorderColor rule \"%s\" failed with: %s", r.szRule.c_str(), e.what()); }
+    } else if (r.szRule == "dimaround") {
+        m_sAdditionalConfigData.dimAround = true;
     }
 }
 
@@ -375,6 +381,7 @@ void CWindow::updateDynamicRules() {
     m_sAdditionalConfigData.forceNoAnims   = false;
     m_sAdditionalConfigData.animationStyle = "";
     m_sAdditionalConfigData.rounding       = -1;
+    m_sAdditionalConfigData.dimAround      = false;
 
     const auto WINDOWRULES = g_pConfigManager->getMatchingRules(this);
     for (auto& r : WINDOWRULES) {

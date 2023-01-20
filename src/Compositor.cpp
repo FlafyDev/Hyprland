@@ -2,6 +2,9 @@
 #include "helpers/Splashes.hpp"
 #include <random>
 #include "debug/HyprCtl.hpp"
+#ifdef USES_SYSTEMD
+#include <systemd/sd-daemon.h> // for sd_notify
+#endif
 
 int handleCritSignal(int signo, void* data) {
     Debug::log(LOG, "Hyprland received signal %d", signo);
@@ -22,8 +25,15 @@ CCompositor::CCompositor() {
 
     setenv("HYPRLAND_INSTANCE_SIGNATURE", m_szInstanceSignature.c_str(), true);
 
+    if (!std::filesystem::exists("/tmp/hypr")) {
+        std::filesystem::create_directory("/tmp/hypr");
+        std::filesystem::permissions("/tmp/hypr", std::filesystem::perms::all, std::filesystem::perm_options::replace);
+    }
+
     const auto INSTANCEPATH = "/tmp/hypr/" + m_szInstanceSignature;
-    mkdir(INSTANCEPATH.c_str(), S_IRWXU | S_IRWXG);
+    std::filesystem::create_directory(INSTANCEPATH);
+    std::filesystem::permissions(INSTANCEPATH, std::filesystem::perms::group_all, std::filesystem::perm_options::replace);
+    std::filesystem::permissions(INSTANCEPATH, std::filesystem::perms::owner_all, std::filesystem::perm_options::add);
 
     Debug::init(m_szInstanceSignature);
 
@@ -39,7 +49,7 @@ CCompositor::CCompositor() {
 
     Debug::log(NONE, "\n\n"); // pad
 
-    Debug::log(INFO, "If you are crashing, or encounter any bugs, please consult https://github.com/hyprwm/Hyprland/wiki/Crashing-and-bugs\n\n");
+    Debug::log(INFO, "If you are crashing, or encounter any bugs, please consult https://wiki.hyprland.org/Crashes-and-Bugs/\n\n");
 
     setRandomSplash();
 
@@ -347,16 +357,28 @@ void CCompositor::startCompositor() {
 
     // get socket, avoid using 0
     for (int candidate = 1; candidate <= 32; candidate++) {
-        if (wl_display_add_socket(m_sWLDisplay, ("wayland-" + std::to_string(candidate)).c_str()) >= 0) {
-            m_szWLDisplaySocket = "wayland-" + std::to_string(candidate);
+        const auto CANDIDATESTR = ("wayland-" + std::to_string(candidate));
+        const auto RETVAL       = wl_display_add_socket(m_sWLDisplay, CANDIDATESTR.c_str());
+        if (RETVAL >= 0) {
+            m_szWLDisplaySocket = CANDIDATESTR;
+            Debug::log(LOG, "wl_display_add_socket for %s succeeded with %i", CANDIDATESTR.c_str(), RETVAL);
             break;
+        } else {
+            Debug::log(WARN, "wl_display_add_socket for %s returned %i: skipping candidate %i", CANDIDATESTR.c_str(), RETVAL, candidate);
         }
+    }
+
+    if (m_szWLDisplaySocket.empty()) {
+        Debug::log(WARN, "All candidates failed, trying wl_display_add_socket_auto");
+        const auto SOCKETSTR = wl_display_add_socket_auto(m_sWLDisplay);
+        if (SOCKETSTR)
+            m_szWLDisplaySocket = SOCKETSTR;
     }
 
     if (m_szWLDisplaySocket.empty()) {
         Debug::log(CRIT, "m_szWLDisplaySocket NULL!");
         wlr_backend_destroy(m_sWLRBackend);
-        throw std::runtime_error("m_szWLDisplaySocket was null! (wl_display_add_socket_auto failed)");
+        throw std::runtime_error("m_szWLDisplaySocket was null! (wl_display_add_socket and wl_display_add_socket_auto failed)");
     }
 
     setenv("WAYLAND_DISPLAY", m_szWLDisplaySocket.c_str(), 1);
@@ -376,6 +398,14 @@ void CCompositor::startCompositor() {
     }
 
     wlr_xcursor_manager_set_cursor_image(m_sWLRXCursorMgr, "left_ptr", m_sWLRCursor);
+
+#ifdef USES_SYSTEMD
+    if (sd_booted() > 0)
+        // tell systemd that we are ready so it can start other bond, following, related units
+        sd_notify(0, "READY=1");
+    else
+        Debug::log(LOG, "systemd integration is baked in but system itself is not booted à la systemd!");
+#endif
 
     // This blocks until we are done.
     Debug::log(LOG, "Hyprland is ready, running the event loop!");
@@ -808,6 +838,17 @@ void CCompositor::focusWindow(CWindow* pWindow, wlr_surface* pSurface) {
 
     updateWindowAnimatedDecorationValues(pWindow);
 
+    // Handle urgency hint on the workspace
+    if (pWindow->m_bIsUrgent) {
+        pWindow->m_bIsUrgent = false;
+        if (!hasUrgentWindowOnWorkspace(pWindow->m_iWorkspaceID)) {
+            const auto PWORKSPACE = getWorkspaceByID(pWindow->m_iWorkspaceID);
+            if (PWORKSPACE->m_pWlrHandle) {
+                wlr_ext_workspace_handle_v1_set_urgent(PWORKSPACE->m_pWlrHandle, 0);
+            }
+        }
+    }
+
     // Send an event
     g_pEventManager->postEvent(SHyprIPCEvent{"activewindow", g_pXWaylandManager->getAppIDClass(pWindow) + "," + pWindow->m_szTitle});
 
@@ -824,6 +865,14 @@ void CCompositor::focusWindow(CWindow* pWindow, wlr_surface* pSurface) {
     }
 
     g_pInputManager->recheckIdleInhibitorStatus();
+
+    // move to front of the window history
+    const auto HISTORYPIVOT = std::find_if(m_vWindowFocusHistory.begin(), m_vWindowFocusHistory.end(), [&](const auto& other) { return other == pWindow; });
+    if (HISTORYPIVOT == m_vWindowFocusHistory.end()) {
+        Debug::log(ERR, "BUG THIS: Window %x has no pivot in history", pWindow);
+    } else {
+        std::rotate(m_vWindowFocusHistory.begin(), HISTORYPIVOT, HISTORYPIVOT + 1);
+    }
 }
 
 void CCompositor::focusSurface(wlr_surface* pSurface, CWindow* pWindowOwner) {
@@ -908,7 +957,18 @@ wlr_surface* CCompositor::vectorToLayerSurface(const Vector2D& pos, std::vector<
             SURFACEAT = (*it)->layerSurface->surface;
         }
 
+        if ((*it)->layerSurface->current.keyboard_interactive && (*it)->layer >= ZWLR_LAYER_SHELL_V1_LAYER_TOP) {
+            if (!SURFACEAT)
+                SURFACEAT = (*it)->layerSurface->surface;
+
+            *ppLayerSurfaceFound = it->get();
+            return SURFACEAT;
+        }
+
         if (SURFACEAT) {
+            if (!pixman_region32_not_empty(&SURFACEAT->input_region))
+                continue;
+
             *ppLayerSurfaceFound = it->get();
             return SURFACEAT;
         }
@@ -987,28 +1047,23 @@ CWorkspace* CCompositor::getWorkspaceByID(const int& id) {
 }
 
 void CCompositor::sanityCheckWorkspaces() {
-    for (auto it = m_vWorkspaces.begin(); it != m_vWorkspaces.end(); ++it) {
+    auto it = m_vWorkspaces.begin();
+    while (it != m_vWorkspaces.end()) {
         const auto WINDOWSONWORKSPACE = getWindowsOnWorkspace((*it)->m_iID);
-
-        if ((WINDOWSONWORKSPACE == 0 && !isWorkspaceVisible((*it)->m_iID))) {
-            it = m_vWorkspaces.erase(it);
-
-            if (it == m_vWorkspaces.end())
-                break;
-
-            continue;
-        }
 
         if ((*it)->m_bIsSpecialWorkspace && WINDOWSONWORKSPACE == 0) {
             getMonitorFromID((*it)->m_iMonitorID)->specialWorkspaceID = 0;
 
             it = m_vWorkspaces.erase(it);
-
-            if (it == m_vWorkspaces.end())
-                break;
-
             continue;
         }
+
+        if ((WINDOWSONWORKSPACE == 0 && !isWorkspaceVisible((*it)->m_iID))) {
+            it = m_vWorkspaces.erase(it);
+            continue;
+        }
+
+        ++it;
     }
 }
 
@@ -1020,6 +1075,15 @@ int CCompositor::getWindowsOnWorkspace(const int& id) {
     }
 
     return no;
+}
+
+bool CCompositor::hasUrgentWindowOnWorkspace(const int& id) {
+    for (auto& w : m_vWindows) {
+        if (w->m_iWorkspaceID == id && w->m_bIsMapped && w->m_bIsUrgent)
+            return true;
+    }
+
+    return false;
 }
 
 CWindow* CCompositor::getFirstWindowOnWorkspace(const int& id) {
@@ -1058,6 +1122,9 @@ void CCompositor::moveWindowToTop(CWindow* pWindow) {
                 break;
             }
         }
+
+        if (pw->m_bIsMapped)
+            g_pHyprRenderer->damageMonitor(getMonitorFromID(pw->m_iMonitorID));
     };
 
     moveToTop(pWindow);
@@ -1473,14 +1540,12 @@ void CCompositor::updateWindowAnimatedDecorationValues(CWindow* pWindow) {
 
     // border
     const auto RENDERDATA = g_pLayoutManager->getCurrentLayout()->requestRenderHints(pWindow);
-    if (RENDERDATA.isBorderColor)
-        setBorderColor(RENDERDATA.borderColor * (1.f / 255.f));
+    if (RENDERDATA.isBorderGradient)
+        setBorderColor(*RENDERDATA.borderGradient);
     else
-        setBorderColor(
-            pWindow == m_pLastWindow ?
-                (pWindow->m_sSpecialRenderData.activeBorderColor >= 0 ? CGradientValueData(CColor(pWindow->m_sSpecialRenderData.activeBorderColor) * (1.f / 255.f)) : *ACTIVECOL) :
-                (pWindow->m_sSpecialRenderData.inactiveBorderColor >= 0 ? CGradientValueData(CColor(pWindow->m_sSpecialRenderData.inactiveBorderColor) * (1.f / 255.f)) :
-                                                                          *INACTIVECOL));
+        setBorderColor(pWindow == m_pLastWindow ?
+                           (pWindow->m_sSpecialRenderData.activeBorderColor >= 0 ? CGradientValueData(CColor(pWindow->m_sSpecialRenderData.activeBorderColor)) : *ACTIVECOL) :
+                           (pWindow->m_sSpecialRenderData.inactiveBorderColor >= 0 ? CGradientValueData(CColor(pWindow->m_sSpecialRenderData.inactiveBorderColor)) : *INACTIVECOL));
 
     // opacity
     const auto PWORKSPACE = g_pCompositor->getWorkspaceByID(pWindow->m_iWorkspaceID);
@@ -1598,6 +1663,10 @@ void CCompositor::swapActiveWorkspaces(CMonitor* pMonitorA, CMonitor* pMonitorB)
 CMonitor* CCompositor::getMonitorFromString(const std::string& name) {
     if (name[0] == '+' || name[0] == '-') {
         // relative
+
+        if (m_vMonitors.size() == 1)
+            return m_vMonitors.begin()->get();
+
         const auto OFFSET = name[0] == '-' ? name : name.substr(1);
 
         if (!isNumber(OFFSET)) {
@@ -1626,7 +1695,7 @@ CMonitor* CCompositor::getMonitorFromString(const std::string& name) {
 
         if (currentPlace != std::clamp(currentPlace, 0, (int)m_vMonitors.size())) {
             Debug::log(WARN, "Error in getMonitorFromString: Vaxry's code sucks.");
-            currentPlace = std::clamp(currentPlace, 0, (int)m_vMonitors.size());
+            currentPlace = std::clamp(currentPlace, 0, (int)m_vMonitors.size() - 1);
         }
 
         return m_vMonitors[currentPlace].get();
@@ -1661,8 +1730,6 @@ CMonitor* CCompositor::getMonitorFromString(const std::string& name) {
                 }
             }
         }
-
-        Debug::log(ERR, "Error in getMonitorFromString: no such monitor");
     }
 
     return nullptr;
@@ -1803,13 +1870,13 @@ void CCompositor::setWindowFullscreen(CWindow* pWindow, bool on, eFullscreenMode
         if (w->m_iWorkspaceID == pWindow->m_iWorkspaceID) {
             w->m_bCreatedOverFullscreen = false;
             if (w.get() != pWindow && !w->m_bFadingOut && !w->m_bPinned)
-                w->m_fAlpha = pWindow->m_bIsFullscreen ? 0.f : 255.f;
+                w->m_fAlpha = pWindow->m_bIsFullscreen ? 0.f : 1.f;
         }
     }
 
     for (auto& ls : PMONITOR->m_aLayerSurfaceLists[ZWLR_LAYER_SHELL_V1_LAYER_TOP]) {
         if (!ls->fadingOut)
-            ls->alpha = pWindow->m_bIsFullscreen && mode == FULLSCREEN_FULL ? 0.f : 255.f;
+            ls->alpha = pWindow->m_bIsFullscreen && mode == FULLSCREEN_FULL ? 0.f : 1.f;
     }
 
     g_pXWaylandManager->setWindowSize(pWindow, pWindow->m_vRealSize.goalv(), true);
@@ -2048,6 +2115,20 @@ CWorkspace* CCompositor::createNewWorkspace(const int& id, const int& monid, con
     PWORKSPACE->m_iMonitorID = monID;
 
     return PWORKSPACE;
+}
+
+void CCompositor::renameWorkspace(const int& id, const std::string& name) {
+    const auto PWORKSPACE = getWorkspaceByID(id);
+
+    if (!PWORKSPACE)
+        return;
+
+    if (isWorkspaceSpecial(id))
+        return;
+
+    Debug::log(LOG, "renameWorkspace: Renaming workspace %d to '%s'", id, name);
+    wlr_ext_workspace_handle_v1_set_name(PWORKSPACE->m_pWlrHandle, name.c_str());
+    PWORKSPACE->m_szName = name;
 }
 
 void CCompositor::setActiveMonitor(CMonitor* pMonitor) {

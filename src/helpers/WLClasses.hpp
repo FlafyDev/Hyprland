@@ -42,8 +42,10 @@ struct SLayerSurface {
     }
 };
 
+class CMonitor;
+
 struct SRenderData {
-    wlr_output* output;
+    CMonitor*   pMonitor;
     timespec*   when;
     int         x, y;
 
@@ -51,13 +53,12 @@ struct SRenderData {
     void*        data    = nullptr;
     wlr_surface* surface = nullptr;
     int          w, h;
-    void*        pMonitor = nullptr;
 
     // for rounding
     bool dontRound = true;
 
     // for fade
-    float fadeAlpha = 255.f;
+    float fadeAlpha = 1.f;
 
     // for alpha settings
     float alpha = 1.f;
@@ -223,7 +224,7 @@ struct STablet {
     std::string           name = "";
 
     bool                  operator==(const STablet& b) {
-        return wlrDevice == b.wlrDevice;
+                         return wlrDevice == b.wlrDevice;
     }
 };
 
@@ -253,6 +254,7 @@ struct STabletTool {
 struct STabletPad {
     wlr_tablet_v2_tablet_pad* wlrTabletPadV2 = nullptr;
     STablet*                  pTabletParent  = nullptr;
+    wlr_input_device*         pWlrDevice     = nullptr;
 
     std::string               name = "";
 

@@ -5,13 +5,15 @@ self: {
   ...
 }: let
   cfg = config.wayland.windowManager.hyprland;
-  defaultHyprlandPackage = self.packages.${pkgs.system}.default.override {
+  defaultHyprlandPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.default.override {
     enableXWayland = cfg.xwayland.enable;
     hidpiXWayland = cfg.xwayland.hidpi;
+    nvidiaPatches = cfg.nvidiaPatches;
   };
 in {
   options.wayland.windowManager.hyprland = {
     enable = lib.mkEnableOption "hyprland wayland compositor";
+
     package = lib.mkOption {
       type = with lib.types; nullOr package;
       default = defaultHyprlandPackage;
@@ -26,6 +28,7 @@ in {
         be done if you want to use the NixOS module to install Hyprland.
       '';
     };
+
     systemdIntegration = lib.mkOption {
       type = lib.types.bool;
       default = pkgs.stdenv.isLinux;
@@ -42,6 +45,18 @@ in {
         </itemizedlist>
       '';
     };
+
+    disableAutoreload = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      defaultText = lib.literalExpression "false";
+      example = lib.literalExpression "true";
+      description = ''
+        Whether to disable automatically reloading Hyprland's configuration when
+        rebuilding the Home Manager profile.
+      '';
+    };
+
     xwayland = {
       enable = lib.mkOption {
         type = lib.types.bool;
@@ -57,6 +72,16 @@ in {
           Enable HiDPI XWayland.
         '';
       };
+    };
+
+    nvidiaPatches = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      defaultText = lib.literalExpression "false";
+      example = lib.liberalExpression "true";
+      description = ''
+        Patch wlroots for better Nvidia support.
+      '';
     };
 
     extraConfig = lib.mkOption {
@@ -107,7 +132,14 @@ in {
           if cfg.package == null
           then defaultHyprlandPackage
           else cfg.package;
-      in "HYPRLAND_INSTANCE_SIGNATURE=$(ls -w 1 /tmp/hypr | tail -1) ${hyprlandPackage}/bin/hyprctl reload config-only";
+      in
+        lib.mkIf (!cfg.disableAutoreload) ''(  # execute in subshell so that `shopt` won't affect other scripts
+          shopt -s nullglob  # so that nothing is done if /tmp/hypr/ does not exist or is empty
+          for instance in /tmp/hypr/*; do
+            HYPRLAND_INSTANCE_SIGNATURE=''${instance##*/} ${hyprlandPackage}/bin/hyprctl reload config-only \
+              || true  # ignore dead instance(s)
+          done
+        )'';
     };
 
     systemd.user.targets.hyprland-session = lib.mkIf cfg.systemdIntegration {

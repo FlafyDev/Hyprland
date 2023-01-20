@@ -149,7 +149,7 @@ inline bool wlr_surface_is_xwayland_surface(void*) {
 
 inline void                  wlr_xwayland_surface_activate(wlr_xwayland_surface*, bool) {}
 
-inline void                  wlr_xwayland_surface_restack(wlr_xwayland_surface*, int, xcb_stack_mode_t) {}
+inline void                  wlr_xwayland_surface_restack(wlr_xwayland_surface*, void*, xcb_stack_mode_t) {}
 
 inline wlr_xwayland_surface* wlr_xwayland_surface_from_wlr_surface(void*) {
     return nullptr;

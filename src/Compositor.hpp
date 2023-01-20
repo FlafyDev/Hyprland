@@ -96,6 +96,8 @@ class CCompositor {
     CWindow*                                  m_pLastWindow  = nullptr;
     CMonitor*                                 m_pLastMonitor = nullptr;
 
+    std::vector<CWindow*>                     m_vWindowFocusHistory; // first element is the most recently focused.
+
     SSeat                                     m_sSeat;
 
     bool                                      m_bReadyToProcess = false;
@@ -135,6 +137,7 @@ class CCompositor {
     void           sanityCheckWorkspaces();
     void           updateWorkspaceWindowDecos(const int&);
     int            getWindowsOnWorkspace(const int&);
+    bool           hasUrgentWindowOnWorkspace(const int&);
     CWindow*       getFirstWindowOnWorkspace(const int&);
     CWindow*       getFullscreenWindowOnWorkspace(const int&);
     bool           doesSeatAcceptInput(wlr_surface*);
@@ -171,6 +174,7 @@ class CCompositor {
     void           forceReportSizesToWindowsOnWorkspace(const int&);
     bool           cursorOnReservedArea();
     CWorkspace*    createNewWorkspace(const int&, const int&, const std::string& name = ""); // will be deleted next frame if left empty and unfocused!
+    void           renameWorkspace(const int&, const std::string& name = "");
     void           setActiveMonitor(CMonitor*);
     bool           isWorkspaceSpecial(const int&);
     int            getNewSpecialID();

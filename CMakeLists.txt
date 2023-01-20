@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.4)
+include(CheckIncludeFile)
+
+# Get version
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/props.json PROPS)
+string(JSON VER GET ${PROPS} version)
+
 project(Hyprland 
     DESCRIPTION "A Modern C++ Wayland Compositor"
+    VERSION ${VER}
 )
 
 set(CMAKE_MESSAGE_LOG_LEVEL "STATUS")
@@ -54,7 +61,7 @@ message(STATUS "Checking deps...")
 find_package(Threads REQUIRED)
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(deps REQUIRED IMPORTED_TARGET wayland-server wayland-client wayland-cursor wayland-protocols cairo pango pangocairo libdrm egl xkbcommon libinput) # we do not check for wlroots, as we provide it ourselves
+pkg_check_modules(deps REQUIRED IMPORTED_TARGET wayland-server wayland-client wayland-cursor wayland-protocols cairo libdrm egl xkbcommon libinput) # we do not check for wlroots, as we provide it ourselves
 
 file(GLOB_RECURSE SRCFILES "src/*.cpp")
 
@@ -73,6 +80,20 @@ ELSE()
     pkg_check_modules(xcbdep REQUIRED xcb)
     target_link_libraries(Hyprland xcb)
 ENDIF(NO_XWAYLAND MATCHES true)
+
+IF(NO_SYSTEMD MATCHES true)
+    message(STATUS "SYSTEMD support is disabled...")
+ELSE()
+    message(STATUS "SYSTEMD support is requested (NO_SYSTEMD not defined) checking deps...")
+    pkg_check_modules(LIBSYSTEMD libsystemd)
+    check_include_file("systemd/sd-daemon.h" SYSTEMDH)
+    IF(LIBSYSTEMD_FOUND AND SYSTEMDH)
+        add_definitions( -DUSES_SYSTEMD )
+        target_link_libraries(Hyprland "${LIBSYSTEMD_LIBRARIES}")
+    ELSE()
+        message(WARNING "Systemd support requested but libsystemd or systemd headers were not found")
+    ENDIF(LIBSYSTEMD_FOUND AND SYSTEMDH)
+ENDIF(NO_SYSTEMD MATCHES true)
 
 target_compile_definitions(Hyprland PRIVATE "-DGIT_COMMIT_HASH=\"${GIT_COMMIT_HASH}\"")
 target_compile_definitions(Hyprland PRIVATE "-DGIT_BRANCH=\"${GIT_BRANCH}\"")
@@ -109,4 +130,5 @@ target_link_libraries(Hyprland
         ${CMAKE_SOURCE_DIR}/ext-workspace-unstable-v1-protocol.o
         ${CMAKE_SOURCE_DIR}/wlr-foreign-toplevel-management-unstable-v1-protocol.o
         ${CMAKE_SOURCE_DIR}/hyprland-toplevel-export-v1-protocol.o
+        ${CMAKE_SOURCE_DIR}/fractional-scale-v1-protocol.o
 )

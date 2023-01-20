@@ -173,9 +173,6 @@ void CMonitor::onDisconnect() {
         }
     }
 
-    if (g_pCompositor->m_pLastMonitor == this)
-        g_pCompositor->setActiveMonitor(BACKUPMON);
-
     // remove mirror
     if (pMirrorOf) {
         pMirrorOf->mirrors.erase(std::find_if(pMirrorOf->mirrors.begin(), pMirrorOf->mirrors.end(), [&](const auto& other) { return other == this; }));
@@ -194,6 +191,17 @@ void CMonitor::onDisconnect() {
     m_bRenderingInitPassed = false;
 
     hyprListener_monitorFrame.removeCallback();
+
+    for (size_t i = 0; i < 4; ++i) {
+        for (auto& ls : m_aLayerSurfaceLists[i]) {
+            wlr_layer_surface_v1_destroy(ls->layerSurface);
+        }
+        m_aLayerSurfaceLists[i].clear();
+    }
+
+    Debug::log(LOG, "Removed monitor %s!", szName.c_str());
+
+    g_pEventManager->postEvent(SHyprIPCEvent{"monitorremoved", szName});
 
     if (!BACKUPMON) {
         Debug::log(WARN, "Unplugged last monitor, entering an unsafe state. Good luck my friend.");
@@ -235,9 +243,22 @@ void CMonitor::onDisconnect() {
 
     std::erase_if(g_pCompositor->m_vWorkspaces, [&](std::unique_ptr<CWorkspace>& el) { return el->m_iMonitorID == ID; });
 
-    Debug::log(LOG, "Removed monitor %s!", szName.c_str());
+    if (g_pCompositor->m_pLastMonitor == this)
+        g_pCompositor->setActiveMonitor(BACKUPMON);
 
-    g_pEventManager->postEvent(SHyprIPCEvent{"monitorremoved", szName});
+    if (g_pHyprRenderer->m_pMostHzMonitor == this) {
+        int       mostHz         = 0;
+        CMonitor* pMonitorMostHz = nullptr;
+
+        for (auto& m : g_pCompositor->m_vMonitors) {
+            if (m->refreshRate > mostHz && m.get() != this) {
+                pMonitorMostHz = m.get();
+                mostHz         = m->refreshRate;
+            }
+        }
+
+        g_pHyprRenderer->m_pMostHzMonitor = pMonitorMostHz;
+    }
 
     std::erase_if(g_pCompositor->m_vMonitors, [&](std::shared_ptr<CMonitor>& el) { return el.get() == this; });
 }
@@ -393,6 +414,8 @@ void CMonitor::setMirror(const std::string& mirrorOf) {
         std::erase_if(g_pCompositor->m_vMonitors, [&](const auto& other) { return other.get() == this; });
 
         g_pCompositor->setActiveMonitor(g_pCompositor->m_vMonitors.front().get());
+
+        g_pCompositor->sanityCheckWorkspaces();
     }
 }
 
@@ -409,7 +432,7 @@ float CMonitor::getDefaultScale() {
 
     if (PPI > 200 /* High PPI, 2x*/)
         return 2;
-    else if (PPI > 125 /* Medium PPI, 1.5x*/)
+    else if (PPI > 140 /* Medium PPI, 1.5x*/)
         return 1.5;
     return 1;
 }

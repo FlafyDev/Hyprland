@@ -128,11 +128,13 @@ void IHyprLayout::onBeginDragWindow() {
     // Window will be floating. Let's check if it's valid. It should be, but I don't like crashing.
     if (!g_pCompositor->windowValidMapped(DRAGGINGWINDOW)) {
         Debug::log(ERR, "Dragging attempted on an invalid window!");
+        g_pInputManager->currentlyDraggedWindow = nullptr;
         return;
     }
 
     if (DRAGGINGWINDOW->m_bIsFullscreen) {
         Debug::log(LOG, "Rejecting drag on a fullscreen window.");
+        g_pInputManager->currentlyDraggedWindow = nullptr;
         return;
     }
 
@@ -140,6 +142,7 @@ void IHyprLayout::onBeginDragWindow() {
 
     if (PWORKSPACE->m_bHasFullscreenWindow && (!DRAGGINGWINDOW->m_bCreatedOverFullscreen || !DRAGGINGWINDOW->m_bIsFloating)) {
         Debug::log(LOG, "Rejecting drag on a fullscreen workspace. (window under fullscreen)");
+        g_pInputManager->currentlyDraggedWindow = nullptr;
         return;
     }
 
@@ -179,7 +182,6 @@ void IHyprLayout::onBeginDragWindow() {
 
     g_pHyprRenderer->damageWindow(DRAGGINGWINDOW);
 
-    // shadow to ignore any bound to MAIN_MOD
     g_pKeybindManager->shadowKeybinds();
 }
 
@@ -190,6 +192,8 @@ void IHyprLayout::onEndDragWindow() {
 
     if (!g_pCompositor->windowValidMapped(DRAGGINGWINDOW))
         return;
+
+    g_pInputManager->currentlyDraggedWindow = nullptr;
 
     if (DRAGGINGWINDOW->m_bDraggingTiled) {
         DRAGGINGWINDOW->m_bIsFloating = false;
@@ -409,8 +413,8 @@ CWindow* IHyprLayout::getNextWindowCandidate(CWindow* pWindow) {
             return m_pLastTiledWindow;
 
         // if we don't, let's try to find any window that is in the middle
-        if (const auto PWINDOWCANDIDATE = g_pCompositor->vectorToWindowIdeal(pWindow->m_vRealPosition.goalv() + pWindow->m_vRealSize.goalv() / 2.f); PWINDOWCANDIDATE &&
-            PWINDOWCANDIDATE != pWindow)
+        if (const auto PWINDOWCANDIDATE = g_pCompositor->vectorToWindowIdeal(pWindow->m_vRealPosition.goalv() + pWindow->m_vRealSize.goalv() / 2.f);
+            PWINDOWCANDIDATE && PWINDOWCANDIDATE != pWindow)
             return PWINDOWCANDIDATE;
 
         // if not, floating window
